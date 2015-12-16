@@ -40,10 +40,12 @@
 %% 5) normal, and {shutdown, _} exit reasons are all treated the same
 %%    (i.e. are regarded as normal exits)
 %%
-%% 6) introduce post_init callback
+%% 6) rename the module to supervisor3
+%%
+%% 7) introduce post_init callback
 %%
 %% Modifications 1-5 are (C) 2010-2020 VMware, Inc. or its affiliates.
-%% Modification 6 is (C) 2015 Klarna AB
+%% Modification 6-7 is (C) 2015 Klarna AB
 %%
 %% %CopyrightBegin%
 %%
