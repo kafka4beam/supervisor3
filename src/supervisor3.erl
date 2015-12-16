@@ -40,7 +40,10 @@
 %% 5) normal, and {shutdown, _} exit reasons are all treated the same
 %%    (i.e. are regarded as normal exits)
 %%
-%% All modifications are (C) 2010-2020 VMware, Inc. or its affiliates.
+%% 6) introduce post_init callback
+%%
+%% Modifications 1-5 are (C) 2010-2020 VMware, Inc. or its affiliates.
+%% Modification 6 is (C) 2015 Klarna AB
 %%
 %% %CopyrightBegin%
 %%
@@ -189,6 +192,14 @@
 
 -callback init(Args :: term()) ->
     {ok, {SupFlags :: sup_flags(), [ChildSpec :: child_spec()]}}
+    | ignore
+    | post_init.
+
+-callback post_init(Args :: term()) ->
+    {ok, {{RestartStrategy :: strategy(),
+           MaxR            :: non_neg_integer(),
+           MaxT            :: non_neg_integer()},
+          [ChildSpec :: child_spec()]}}
     | ignore.
 
 -define(restarting(_Pid_), {restarting,_Pid_}).
@@ -347,14 +358,10 @@ init({SupName, Mod, Args}) ->
     process_flag(trap_exit, true),
     case Mod:init(Args) of
         {ok, {SupFlags, StartSpec}} ->
-            case init_state(SupName, SupFlags, Mod, Args) of
-                {ok, State} when ?is_simple(State) ->
-                    init_dynamic(State, StartSpec);
-                {ok, State} ->
-                    init_children(State, StartSpec);
-                Error ->
-                    {stop, {supervisor_data, Error}}
-            end;
+	       do_init(SupName, SupFlags, StartSpec, Mod, Args);
+        post_init ->
+            self() ! {post_init, SupName, Mod, Args},
+            {ok, #state{}};
         ignore ->
             ignore;
         Error ->
@@ -621,8 +628,7 @@ handle_cast({try_again_restart,TryAgainId}, State) ->
 %% Take care of terminated children.
 %%
 -spec handle_info(term(), state()) ->
-        {'noreply', state()} | {'stop', 'shutdown', state()}.
-
+        {'noreply', state()} | {'stop', term(), state()}.
 handle_info({'EXIT', Pid, Reason}, State) ->
     case restart_child(Pid, Reason, State) of
         {ok, State1} ->
@@ -647,6 +653,19 @@ handle_info({delayed_restart, {Reason, Child}}, State) ->
 %% delayed restart feature is for MaxR = 1, MaxT = some huge number
 %% (so that we don't end up bouncing around in non-delayed restarts)
 %% this is important.
+
+handle_info({post_init, SupName, Mod, Args}, State0) ->
+    Res = case Mod:post_init(Args) of
+              {ok, {SupFlags, StartSpec}} ->
+                  do_init(SupName, SupFlags, StartSpec, Mod, Args);
+              Error ->
+                  {stop, {bad_return, {Mod, post_init, Error}}}
+          end,
+    %% map init/1 result type to handle_* result type
+    case Res of
+        {ok, NewState} -> {noreply, NewState};
+        {stop, Reason} -> {stop, Reason, State0}
+    end;
 
 handle_info(Msg, State) ->
     ?LOG_ERROR("Supervisor received unexpected message: ~tp~n",[Msg],
@@ -1360,7 +1379,7 @@ append({Ids1,Db1},{Ids2,Db2}) ->
     {Ids1++Ids2,maps:merge(Db1,Db2)}.
 
 %%-----------------------------------------------------------------
-%% Func: init_state/4
+%% Func: do_init/5
 %% Args: SupName = {local, atom()} | {global, atom()} | self
 %%       Type = {Strategy, MaxIntensity, Period}
 %%         Strategy = one_for_one | one_for_all | simple_one_for_one |
@@ -1372,6 +1391,16 @@ append({Ids1,Db1},{Ids2,Db2}) ->
 %% Purpose: Check that Type is of correct type (!)
 %% Returns: {ok, state()} | Error
 %%-----------------------------------------------------------------
+do_init(SupName, Type, StartSpec, Mod, Args) ->
+    case init_state(SupName, Type, Mod, Args) of
+        {ok, State} when ?is_simple(State) ->
+            init_dynamic(State, StartSpec);
+        {ok, State} ->
+            init_children(State, StartSpec);
+        Error ->
+            {stop, {supervisor_data, Error}}
+    end.
+
 init_state(SupName, Type, Mod, Args) ->
     set_flags(Type, #state{name = supname(SupName,Mod),
                            module = Mod,
