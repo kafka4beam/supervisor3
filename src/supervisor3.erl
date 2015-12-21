@@ -44,8 +44,10 @@
 %%
 %% 7) introduce post_init callback
 %%
+%% 8) call os:timestamp/0 and timer:now_diff/2 for timestamps
+%%
 %% Modifications 1-5 are (C) 2010-2020 VMware, Inc. or its affiliates.
-%% Modification 6-7 is (C) 2015 Klarna AB
+%% Modification 6-8 is (C) 2015 Klarna AB
 %%
 %% %CopyrightBegin%
 %%
@@ -1582,7 +1584,7 @@ add_restart(State) ->
     I = State#state.intensity,
     P = State#state.period,
     R = State#state.restarts,
-    Now = erlang:monotonic_time(1),
+    Now = os:timestamp(),
     R1 = add_restart([Now|R], Now, P),
     State1 = State#state{restarts = R1},
     case length(R1) of
@@ -1602,8 +1604,13 @@ add_restart([R|Restarts], Now, Period) ->
 add_restart([], _, _) ->
     [].
 
-inPeriod(Then, Now, Period) ->
-    Now =< Then + Period.
+inPeriod(Time, Now, Period) ->
+    case timer:now_diff(Now, Time) div 1000000 of
+	T when T > Period ->
+	    false;
+	_ ->
+	    true
+    end.
 
 %%% ------------------------------------------------------
 %%% Error and progress reporting.
