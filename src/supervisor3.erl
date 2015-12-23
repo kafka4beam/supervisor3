@@ -46,8 +46,10 @@
 %%
 %% 8) call os:timestamp/0 and timer:now_diff/2 for timestamps
 %%
+%% 9) ignore delayed retry in MaxR accumulation
+%%
 %% Modifications 1-5 are (C) 2010-2020 VMware, Inc. or its affiliates.
-%% Modification 6-8 is (C) 2015 Klarna AB
+%% Modification 6-9 is (C) 2015 Klarna AB
 %%
 %% %CopyrightBegin%
 %%
@@ -641,9 +643,11 @@ handle_info({'EXIT', Pid, Reason}, State) ->
             {stop, shutdown, State1}
     end;
 
-handle_info({delayed_restart, {Reason, Child}}, State) when ?is_simple(State) ->
+handle_info({delayed_restart, {_Reason, Child}}, State) when ?is_simple(State) ->
+    Reason = {?MODULE, delayed_restart}
     try_restart(Reason, Child, State#state{restarts = []});  %% [1]
-handle_info({delayed_restart, {Reason, Child}}, State) ->
+handle_info({delayed_restart, {_Reason, Child}}, State) ->
+    Reason = {?MODULE, delayed_restart}
     ChildId = Child#child.id,
     case internal_find_child(ChildId, State) of
         {ok, Child1} ->
@@ -870,7 +874,8 @@ do_restart_delay(Reason,
                                 pid = ChildPid0,
                                 restart_type = {_RestartType, Delay}},
                  State0) ->
-    case add_restart(State0) of
+    IsCleanRetry = Reason =:= {?MODULE, delayed_restart},
+    case maybe_add_restart(State0, IsCleanRetry) of
         {ok, State1} ->
             Strategy = State1#state.strategy,
             maybe_restart(Strategy, Child, State1);
@@ -1581,36 +1586,38 @@ child_to_spec(#child{id = Id,
 %%% ------------------------------------------------------
 
 add_restart(State) ->
-    I = State#state.intensity,
-    P = State#state.period,
-    R = State#state.restarts,
-    Now = os:timestamp(),
-    R1 = add_restart([Now|R], Now, P),
-    State1 = State#state{restarts = R1},
-    case length(R1) of
-        CurI when CurI  =< I ->
-            {ok, State1};
-        _ ->
-            {terminate, State1}
-    end.
+  maybe_add_restart(State, _IsCleanRetry = false).
 
-add_restart([R|Restarts], Now, Period) ->
-    case inPeriod(R, Now, Period) of
-        true ->
-            [R|add_restart(Restarts, Now, Period)];
-        _ ->
-            []
-    end;
-add_restart([], _, _) ->
-    [].
+maybe_add_restart(State, IsCleanRetry) ->
+  MaxR = State#state.intensity,
+  P = State#state.period,
+  R = State#state.restarts,
+  Now = os:timestamp(),
+  %% when it is a clean retry do not add it to maxR accumulation.
+  %%
+  %% NOTE: it may still return {terminate, ...} when for example
+  %%       delayed retry is too quick, i.e. DelayedSeconds < MaxT
+  R1 = case IsCleanRetry of
+          true  -> delete_old_restarts(R, Now, P);
+          false -> delete_old_restarts([Now|R], Now, P)
+       end,
+  State1 = State#state{restarts = R1},
+  case length(R1) of
+    Count when Count =< MaxR ->
+      {ok, State1};
+    _ ->
+      {terminate, State1}
+  end.
 
-inPeriod(Time, Now, Period) ->
-    case timer:now_diff(Now, Time) div 1000000 of
-	T when T > Period ->
-	    false;
-	_ ->
-	    true
-    end.
+delete_old_restarts([], _, _) -> [];
+delete_old_restarts([R|Restarts], Now, Period) ->
+  case isInPeriod(R, Now, Period) of
+    true -> [R | delete_old_restarts(Restarts, Now, Period)];
+    _    -> []
+  end.
+
+isInPeriod(Time, Now, Period) ->
+  (timer:now_diff(Now, Time) div 1000000) =< Period.
 
 %%% ------------------------------------------------------
 %%% Error and progress reporting.
