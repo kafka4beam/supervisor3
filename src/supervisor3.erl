@@ -875,7 +875,7 @@ do_restart_delay(Reason,
                                 restart_type = {_RestartType, Delay}},
                  State0) ->
     IsCleanRetry = Reason =:= {?MODULE, delayed_restart},
-    case maybe_add_restart(State0, IsCleanRetry) of
+    case add_restart(State0, IsCleanRetry) of
         {ok, State1} ->
             Strategy = State1#state.strategy,
             maybe_restart(Strategy, Child, State1);
@@ -1586,9 +1586,9 @@ child_to_spec(#child{id = Id,
 %%% ------------------------------------------------------
 
 add_restart(State) ->
-  maybe_add_restart(State, _IsCleanRetry = false).
+  add_restart(State, _IsCleanRetry = false).
 
-maybe_add_restart(State, IsCleanRetry) ->
+add_restart(State, IsCleanRetry) ->
   MaxR = State#state.intensity,
   P = State#state.period,
   R = State#state.restarts,
