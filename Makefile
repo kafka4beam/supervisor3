@@ -1,7 +1,4 @@
-.PHONY: all
-all:
-	rebar3 do compile,dialyzer,eunit
+PROJECT = supervisor3
+PROJECT_VERSION = 1.0.1
 
-.PHONY: hex-publish
-hex-publish: distclean
-	$(verbose) rebar3 hex publish
+include erlang.mk
