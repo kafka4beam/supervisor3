@@ -113,7 +113,13 @@
 -type mfargs()   :: {M :: module(), F :: atom(), A :: [term()] | undefined}.
 -type modules()  :: [module()] | 'dynamic'.
 -type delay()    :: non_neg_integer().
--type restart()  :: 'permanent' | 'transient' | 'temporary' | 'intrinsic' | {'permanent', delay()} | {'transient', delay()} | {'intrinsic', delay()}.
+-type restart()  :: 'permanent'
+                  | 'transient'
+                  | 'temporary'
+                  | 'intrinsic'
+                  | {'permanent', delay()}
+                  | {'transient', delay()}
+                  | {'intrinsic', delay()}.
 -type shutdown() :: 'brutal_kill' | timeout().
 -type worker()   :: 'worker' | 'supervisor'.
 -type sup_name() :: {'local', Name :: atom()}
@@ -751,12 +757,11 @@ update_childspec1({[],OldDb}, {Ids,Db}, KeepOld) ->
 
 update_chsp(#child{id=Id}=OldChild, NewDb) ->
     case maps:find(Id, NewDb) of
-        {ok,Child} ->
-            {ok,NewDb#{Id => Child#child{pid = OldChild#child.pid}}};
+        {ok, Child} ->
+            {ok, NewDb#{Id => Child#child{pid = OldChild#child.pid}}};
         error -> % Id not found in new spec.
             false
     end.
-
 
 %%% ---------------------------------------------------
 %%% Start a new child.
@@ -771,7 +776,9 @@ handle_start_child(Child, State) ->
                 {ok, Pid} ->
                     {{ok, Pid}, save_child(Child#child{pid = Pid}, State)};
                 {ok, Pid, Extra} ->
-                    {{ok, Pid, Extra}, save_child(Child#child{pid = Pid}, State)};
+                    {{ok, Pid, Extra},
+                     save_child(Child#child{pid = Pid},
+                     State)};
                 {error, What} ->
                     {{error, {What, Child}}, State}
             end;
@@ -1209,7 +1216,8 @@ wait_dynamic_children(Child, Pids, Sz, TRef, EStack) ->
 %% it could become very costly as it is not uncommon to spawn
 %% very many such processes.
 -spec save_child(child_rec(), state()) -> state().
-save_child(#child{mfargs = {M, F, _}} = Child, State) when ?is_temporary(Child) ->
+save_child(#child{mfargs = {M, F, _}} = Child, State)
+  when ?is_temporary(Child) ->
     do_save_child(Child#child{mfargs = {M, F, undefined}}, State);
 save_child(Child, State) ->
     do_save_child(Child, State).
@@ -1250,7 +1258,8 @@ split_ids(Id, [Other|Ids], After) ->
 
 %% Find the child record for a given Pid (dynamic child) or Id
 %% (non-dynamic child). This is called from the API functions.
--spec internal_find_child(pid() | child_id(), state()) -> {ok,child_rec()} | error.
+-spec internal_find_child(pid() | child_id(), state()) ->
+    {ok,child_rec()} | error.
 internal_find_child(Pid, State) when is_pid(Pid), ?is_simple(State) ->
     case find_dynamic_child(Pid, State) of
         error ->
