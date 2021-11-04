@@ -47,6 +47,6 @@ perspective, it's an abnormal exit.
 
 9. Ignore delayed retry in MaxR accumulation
 
-Modifications 1-5 are (C) 2010-2013 GoPivotal, Inc.
+%% Modifications 1-5 are (C) 2010-2020 VMware, Inc. or its affiliates.
 
 Modifications 6-9 are (C) 2015 Klarna AB
